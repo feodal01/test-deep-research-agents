@@ -210,3 +210,4 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 src/agents/open_deep_research/.venv/
+/agents/
