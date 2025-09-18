@@ -69,7 +69,9 @@ async def amain() -> int:
         raise ValueError("Unsupported benchmark")
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_dir = os.path.join(args.out, args.subset, args.split, timestamp)
+    # Пишем отчёты строго в корневой reports/, независимо от текущего CWD
+    base_out = os.path.join(REPO_ROOT, args.out)
+    out_dir = os.path.join(base_out, args.subset, args.split, timestamp)
     os.makedirs(out_dir, exist_ok=True)
 
     results: List[Dict[str, Any]] = []
