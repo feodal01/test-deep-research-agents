@@ -1,115 +1,105 @@
 ## test-deep-research-agents
 
-Песочница для тестирования и сравнения open‑source deep‑research агентов на открытых бенчмарках. Первый целевой бенчмарк — `seal-0`. Фокус — агентный поиск и сбор фактов в интернете (web research). Код писать не требуется: репозиторий хранит правила запусков, конфигурации, артефакты результатов и отчёты.
+A sandbox to evaluate open‑source deep‑research agents on open benchmarks. The first target benchmark is SealQA (seal-0). The focus is web research: searching the internet, gathering evidence, and producing grounded answers. This repo stores run rules, configs, artifacts, and reports.
 
-### Зачем это нужно
-- **Сравнимость**: единый протокол прогонов и формат отчётов для разных агентов.
-- **Воспроизводимость**: фиксированные версии окружения, сиды и артефакты.
-- **Простота**: быстрый старт через `uv` и понятные шаги запуска.
+### Why
+- **Comparability**: single run protocol and unified report format across agents
+- **Reproducibility**: pinned env, seeds, and artifacts
+- **Simplicity**: quick start via `uv` and minimal run steps
 
-### Первый бенчмарк: sealqa
-`sealqa` — открытый бенчмарк для оценки способности агента находить и агрегировать релевантные сведения из интернета. Мы используем его как стартовую точку для валидного сравнения open‑source deep‑research агентов. Детали набора, метрик и правил фиксируются в документации и конфигурациях в этом репозитории.
+### Important
+Do NOT clone the upstream `langchain-ai/open_deep_research` separately. The agent is vendored in this repo at `src/agents/open_deep_research` and includes modifications that enable per‑node model overrides (one place to configure model/base_url/api_key for all nodes: research, summarization, compression, final_report). Upstream had different models hard‑coded per node; our version lets you set them uniformly via `.env` or runtime config.
 
-### Область проекта
-- В фокусе: интернет‑поиск, навигация по источникам, сбор и верификация фактов.
-- Агентов мы запускаем как внешние инструменты по их документации; в репозитории храним конфиги, протоколы и результаты.
+There is an `env.example` at the repo root. Copy it to `.env` and fill in your keys.
 
-### Требования
+### Requirements
 - macOS/Linux (arm64/x86_64)
-- Python 3.11+ (предложение)
-- `uv` — менеджер окружения и зависимостей
+- Python 3.11+
+- `uv` for env and dependency management
 
-### Быстрый старт (uv)
-1) Установите `uv`.
-
+### Install uv and root deps
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv --version
-```
-
-2) Создайте изолированное окружение и активируйте его.
-
-```bash
 uv venv .venv
-source .venv/bin/activate  # macOS/Linux
-python -V
+source .venv/bin/activate
+uv sync
 ```
 
-3) Зависимости. На старте код в репозитории не требуется; при добавлении вспомогательных утилит будет опубликован `pyproject.toml`/`uv.lock`, и вы сможете выполнить:
+### Download SealQA dataset
+Dataset: https://huggingface.co/datasets/vtllms/sealqa
 
-```bash
-uv sync  # установит из pyproject.toml и uv.lock
-```
-
-### Загрузка датасета SealQA
-Датасет: [vtllms/sealqa на Hugging Face](https://huggingface.co/datasets/vtllms/sealqa).
-
-Скрипт загрузит все подсеты (`seal_0`, `seal_hard`, `longseal`) и все доступные сплиты в `data/`.
-
+This downloads all subsets (`seal_0`, `seal_hard`, `longseal`) and available splits into `data/`:
 ```bash
 uv run python src/benchmarks/download_sealqa.py --out data --format parquet
 ```
 
-Структура вывода:
+### Environment variables (.env)
+We auto‑load repo_root/.env in all scripts. See `env.example` and copy it to `.env`.
 
+Key settings:
 ```text
-data/sealqa/
-  ├── seal_0/
-  │   ├── test.parquet
-  │   └── metadata.json
-  ├── seal_hard/
-  │   ├── test.parquet
-  │   └── metadata.json
-  └── longseal/
-      ├── test.parquet
-      └── metadata.json
+SEARCH_API=tavily                     # tavily|openai|anthropic|none
+TAVILY_API_KEY=...
+# optional: TAVILY_API_BASE_URL=https://api.tavily.com
+
+# Per-node overrides (model / base_url / api_key)
+RESEARCH_MODEL=openai:gpt-4o-mini
+RESEARCH_BASE_URL=https://openai-hub.neuraldeep.tech/v1
+RESEARCH_API_KEY=...
+SUMMARIZATION_MODEL=...
+SUMMARIZATION_BASE_URL=...
+SUMMARIZATION_API_KEY=...
+COMPRESSION_MODEL=...
+COMPRESSION_BASE_URL=...
+COMPRESSION_API_KEY=...
+FINAL_REPORT_MODEL=...
+FINAL_REPORT_BASE_URL=...
+FINAL_REPORT_API_KEY=...
+
+# Behavior
+ALLOW_CLARIFICATION=false
+
+# Optional: read from runtime config instead of .env
+GET_MODEL_OVERRIDES_FROM_CONFIG=false
+GET_API_KEYS_FROM_CONFIG=false
+
+# Provider fallbacks (used if per-node keys are not set)
+# OPENAI_API_KEY=...
+# ANTHROPIC_API_KEY=...
+# GOOGLE_API_KEY=...
 ```
 
-### Запуск агента (Open Deep Research)
-Агент: [langchain-ai/open_deep_research](https://github.com/langchain-ai/open_deep_research).
-
-Клонирование в локальную папку (для редактирования конфигурации агента):
-
+### Quick agent run (vendored agent)
+Use the vendored agent and its environment (it has its own deps):
 ```bash
-uv run python scripts/clone_open_deep_research.py
+cd src/agents/open_deep_research
+uv sync
+uv run python ../open_deep_research_cli.py "Who authored SealQA and what is it?"
 ```
+This uses model/search settings from repo_root/.env and writes nothing by default.
 
-При необходимости отредактируйте конфигурацию агента в его репозитории (например, файл `open_deep_research/configuration.py`), затем используйте наш CLI.
-
-Пример одиночного запроса:
-
+### Run the benchmark (SealQA)
+We recommend running the benchmark using the agent’s environment, while the script lives in the root:
 ```bash
-uv run python src/agents/open_deep_research_cli.py "Кто автор SealQA и что это такое?" --search-api tavily --model openai:gpt-4.1-mini
+# from the agent env
+cd src/agents/open_deep_research
+uv run python ../../src/evals/run_benchmark.py --subset seal_0 --limit 5
+```
+Reports are saved under repo_root:
+```
+reports/open_deep_research/sealqa/<subset>/<split>/<timestamp>/run.json
 ```
 
-Требуются валидные ключи API для выбранного провайдера (например, `OPENAI_API_KEY`, `TAVILY_API_KEY`).
-
-Переменные окружения:
-
-```text
-# Эти ключи относятся к deep‑research агенту Open Deep Research.
-# Другие агенты могут потребовать свои ключи — добавляйте их аналогично.
-OPENAI_API_KEY=...       # если используете openai:* модели
-ANTHROPIC_API_KEY=...    # если используете anthropic:* модели
-OPENROUTER_API_KEY=...   # опционально, если используете OpenRouter
-TAVILY_API_KEY=...       # провайдер поиска Tavily (рекомендуется по умолчанию)
-GOOGLE_API_KEY=...       # опционально, если используете Google CSE
-GOOGLE_CSE_ID=...        # опционально, если используете Google CSE
-```
-
-Можно создать файл `env.example`, скопировать его в `.env` и заполнить значениями.
-
-### Прогон на бенчмарке SealQA
-Быстрый прогон на первых N примеров:
-
+### Tavily connectivity test
 ```bash
-uv run python src/evals/run_benchmark.py --benchmark sealqa --subset seal_0 --split test --limit 5
+cd src/agents/open_deep_research
+uv run python ../../src/agents/scripts/test_tavily.py --query "SealQA benchmark" --max-results 3
 ```
+This verifies your `TAVILY_API_KEY` (and `TAVILY_API_BASE_URL` if set). Our code supports older `tavily-python` versions by falling back when `api_base_url` is not available.
 
-Результаты сохраняются в `reports/open_deep_research/sealqa/<subset>/<split>/<timestamp>/run.json`.
+### Contributing
+PRs welcome. Please include a short description of your settings and versions with results.
 
-### Вклад
-PR и предложения приветствуются. Просьба сопровождать результаты кратким описанием настроек и версий.
-
-### Лицензия
-MIT — см. `LICENSE`.
+### License
+MIT — see `LICENSE`.
