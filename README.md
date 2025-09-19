@@ -68,6 +68,10 @@ GET_API_KEYS_FROM_CONFIG=false
 # OPENAI_API_KEY=...
 # ANTHROPIC_API_KEY=...
 # GOOGLE_API_KEY=...
+
+# Small Search Agent (Ollama) — only for src/agents/small_search_agent
+SSA_OLLAMA_BASE_URL=http://localhost:11434
+SSA_OLLAMA_MODEL=llama3.1:8b-instruct-q4_0
 ```
 
 ### Quick agent run (vendored agent)
@@ -84,11 +88,24 @@ We recommend running the benchmark using the agent’s environment, while the sc
 ```bash
 # from the agent env
 cd src/agents/open_deep_research
-uv run python ../../src/evals/run_benchmark.py --subset seal_0 --limit 5
+uv run python ../../evals/run_benchmark.py --subset seal_0 --limit 5
 ```
 Reports are saved under repo_root:
 ```
 reports/open_deep_research/sealqa/<subset>/<split>/<timestamp>/run.json
+```
+
+### Run the benchmark with the Small Search Agent
+Small agent has its own uv environment and writes identically structured results (raw.messages and raw.final_report):
+```bash
+# from the small agent env
+cd src/agents/small_search_agent
+uv sync   # first time only
+uv run python ../../evals/run_benchmark.py --agent small --subset seal_0 --limit 5
+```
+Outputs for the small agent are written to:
+```
+reports/small_search_agent/sealqa/<subset>/<split>/<timestamp>/{run.json,results.jsonl,progress.json}
 ```
 
 ### Tavily connectivity test
