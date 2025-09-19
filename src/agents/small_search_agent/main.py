@@ -35,18 +35,18 @@ import ollama
 # =========================
 
 class SearchRequest(BaseModel):
-    reasoning: str = Field(..., description="Why search this (1 short sentence)")
-    request: str = Field(..., description="Full search query for the web")
+    reasoning: str = Field(..., max_length=100, description="Why search this (1 short sentence)")
+    request: str = Field(..., max_length=100, description="Full search query for the web")
 
 class Search(BaseModel):
     name: Literal['search']
-    reasoning: str = Field(..., description="Why search this (1 short sentence)")
-    request: List[SearchRequest] = Field(..., min_length=3, description="List of search queries to be executed")
+    reasoning: str = Field(..., max_length=100, description="Why search this (1 short sentence)")
+    request: List[SearchRequest] = Field(..., min_items=1, max_items=5, description="List of search queries to be executed")
 
 class Answer(BaseModel):
     name: Literal['answer']
-    reasoning: str = Field(..., description="Brief decision rationale based strictly on facts above")
-    answer: str
+    reasoning: str = Field(..., max_length=100, description="Brief decision rationale based strictly on facts above")
+    answer: str = Field(..., max_length=1000, description="Answer to the user's question")
 
 class ModelResponse(BaseModel):
     model_response: Union[Search, Answer]
@@ -62,25 +62,22 @@ class ForcedSearchResponse(BaseModel):
 # =========================
 
 DECISION_SYS_TEMPLATE = """
-Role:
-You decide whether to call the web_search tool based on the user's question and produce a structured response.
+You are a router. Your only task: decide between SEARCH or ANSWER for the user's question.
 
 Tools:
 - web_search: the only available tool.
 
 Current date (UTC): {today}
 
-Decision rule:
-- If the question needs up-to-date, factual, niche, or verifiable information, return a tool call ("search").
-- If the question is generic knowledge you can answer reliably without searching, return a direct answer ("answer").
-- When uncertain, prefer "search".
+Decision rule (pick exactly one):
+- If the question needs up-to-date or verifiable info → SEARCH.
+- If it is stable general knowledge → ANSWER.
+- When uncertain → SEARCH.
 
-Hard requirements:
-- OUTPUT ONLY VALID JSON that matches the provided JSON Schema.
-- No extra keys, no markdown, no prose.
-- Keep "reasoning" to one short sentence.
-- If you select "search", produce exactly 5 SearchRequest items covering different angles.
- - Do NOT restrict queries to specific domains (no `site:` filters). Produce general web queries suitable for a broad search provider.
+Output requirements:
+- OUTPUT ONLY VALID JSON per schema. No prose, no markdown.
+- "reasoning": one short sentence.
+- If name=="search": produce exactly 5 SearchRequest items. Queries must be distinct, concise, and general-purpose (no site: filters).
 
 Schema (return EXACTLY one of the following via the top-level object):
 {schema}
@@ -142,18 +139,16 @@ Current date (UTC): {today}
 
 
 SEARCH_PLAN_SYS_TEMPLATE = """
-Role:
-You MUST return a search plan for the user's question. Answering directly is NOT allowed in this iteration.
+You MUST output a search plan JSON for the user's question. Answering directly is NOT allowed in this iteration.
 
 Current date (UTC): {today}
 
-Requirements:
+Requirements (strict):
 - Return ONLY the JSON matching the schema below.
-- The top-level object is `model_response` with `name` == "search".
-- Provide a brief high-level plan-level `reasoning`.
-- Provide EXACTLY 5 SearchRequest items in `request`, each with a short `reasoning` and a concrete web query.
-- Make queries general-purpose (no domain restrictions), and reflect freshness where relevant (include the year, ranges up to {today}, or "today").
- - Include at least one query aimed at extracting key dates needed for temporal reasoning (e.g., birth dates, event dates, publication dates).
+- Top-level: `model_response.name` MUST be "search".
+- Provide 1-sentence plan `reasoning`.
+- Provide EXACTLY 5 SearchRequest items, each with short `reasoning` and a distinct concrete query.
+- Queries must be general-purpose (no domain restrictions), and reflect freshness if relevant (include the year or {today}).
 
 Schema (STRICT):
 {schema}
@@ -171,15 +166,7 @@ def get_tavily_client() -> TavilyClient:
         sys.exit(1)
     return TavilyClient(api_key=api_key)
 
-def call_ollama_chat(messages, model: str, format_schema: dict | None = None, temperature: float = 0.2, *, messages_collector: list[str] | None = None, step_name: str | None = None) -> str:
-    kwargs = {
-        "model": model,
-        "messages": messages,
-        "options": {"temperature": temperature},
-    }
-    if format_schema is not None:
-        kwargs["format"] = format_schema
-
+def call_ollama_chat(messages, model: str, format_schema: dict, temperature: float = 0.2, *, messages_collector: list[str] | None = None, step_name: str | None = None) -> str:
     # Логируем входящие сообщения
     if messages_collector is not None:
         prefix = f"[{step_name}] " if step_name else ""
@@ -188,7 +175,15 @@ def call_ollama_chat(messages, model: str, format_schema: dict | None = None, te
             content = m.get("content")
             messages_collector.append(f"{prefix}role={role} content={json.dumps(content, ensure_ascii=False)}")
 
-    resp = ollama.chat(**kwargs)
+    resp = ollama.chat(
+        messages=messages,
+        model=model,
+        options={
+            "temperature": temperature,
+            "repeat_penalty": 1.7,
+        },
+        format=format_schema,
+    )
     content = resp["message"]["content"]
 
     # Логируем ответ модели
@@ -217,7 +212,7 @@ def decide_search_or_answer(question: str, model: str = "gemma3:1b", *, messages
         ],
         model=model,
         format_schema=ModelResponse.model_json_schema(),
-        temperature=0.2,
+        temperature=0.1,
         messages_collector=messages_collector,
         step_name="decide_search_or_answer",
     )
@@ -243,7 +238,7 @@ def generate_search_plan(question: str, model: str = "gemma3:1b", *, messages_co
         ],
         model=model,
         format_schema=ForcedSearchResponse.model_json_schema(),
-        temperature=0.2,
+        temperature=0.5,
         messages_collector=messages_collector,
         step_name="generate_search_plan",
     )
@@ -342,9 +337,7 @@ def answer_with_sources(question: str, sources_block: str, model: str = "gemma3:
     SOURCES:
     {sources_block}
 
-    Return valid JSON only. The JSON MUST:
-    - include the `temporal` object described in the system message;
-    - keep field order: name -> temporal -> reasoning -> answer.
+    Return valid JSON only
     """
     content = call_ollama_chat(
         messages=[
@@ -353,7 +346,7 @@ def answer_with_sources(question: str, sources_block: str, model: str = "gemma3:
         ],
         model=model,
         format_schema=Answer.model_json_schema(),
-        temperature=0.0,
+        temperature=0.1,
         messages_collector=messages_collector,
         step_name="final_answer",
     )

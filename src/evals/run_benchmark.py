@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone
+import traceback
 from typing import Any, Dict, List
 import sys
 
@@ -109,16 +110,30 @@ async def amain() -> int:
     for i in range(limit):
         row = ds[i]
         question = row.get("question") or row.get("prompt") or str(row)
-        if args.agent == "odr":
-            assert cfg is not None
-            res = await run_one(question=question, cfg=cfg)
-        else:
-            res = run_one_small(question=question)
-        entry = {
-            "id": i,
-            "question": question,
-            "raw": res,
-        }
+        try:
+            if args.agent == "odr":
+                assert cfg is not None
+                res = await run_one(question=question, cfg=cfg)
+            else:
+                res = run_one_small(question=question)
+            entry = {
+                "id": i,
+                "question": question,
+                "raw": res,
+            }
+        except Exception as e:
+            # Пропускаем задачу с ошибкой, но сохраняем её в отчёт
+            err = {
+                "error": str(e),
+                "error_type": e.__class__.__name__,
+                "trace": traceback.format_exc()[:2000],
+            }
+            entry = {
+                "id": i,
+                "question": question,
+                "raw": err,
+            }
+            print(f"[{i+1}/{limit}] error id={i}: {e}", flush=True)
         results.append(entry)
         # progress line
         print(f"[{i+1}/{limit}] done id={i}", flush=True)

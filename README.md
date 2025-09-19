@@ -108,6 +108,18 @@ Outputs for the small agent are written to:
 reports/small_search_agent/sealqa/<subset>/<split>/<timestamp>/{run.json,results.jsonl,progress.json}
 ```
 
+Optional anti-loop tuning for small agent (env):
+```bash
+# number of extra search rounds after the first forced one
+SSA_EXTRA_SEARCH_ROUNDS=1
+# hard wall-clock limit (seconds) for source gathering
+SSA_MAX_SECONDS=120
+# cap on total Tavily queries across all rounds
+SSA_MAX_TOTAL_QUERIES=12
+# stop if next-round queries are all duplicates of previous ones (true|false)
+SSA_BREAK_ON_DUPLICATE=true
+```
+
 ### Tavily connectivity test
 ```bash
 cd src/agents/open_deep_research
